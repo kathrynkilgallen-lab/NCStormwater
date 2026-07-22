@@ -1,0 +1,64 @@
+import csv
+import requests
+import pandas as pd
+
+
+# The direct REST API endpoint for the NPDES Wastewater Wastewater Permits layer
+# We request all fields (outFields=*) and output format as JSON
+# Original URL had returnIdsOnly=true&returnCountOnly=true which prevents features from being returned.
+# Also, original URL contained geometry parameters that might conflict or unnecessarily restrict results
+# when filtering by county.
+url = "https://maps.deq.nc.gov/arcgis/rest/services/DEQ/ApplicationTracker/MapServer/10/query"
+params = {
+    "f": "json",  # Fetch data in JSON format
+    "where": "COUNTY IN ('Burke', 'Avery', 'McDowell')", # Modify the 'where' clause to filter by specific counties
+    "outFields": "*",  # Requesting all fields
+    "returnGeometry": "false",  # Explicitly setting returnGeometry to false
+    # Removed "resultType": "json" as "f": "json" already handles the format.
+    # Importantly, removed parameters like "returnIdsOnly" and "returnCountOnly"
+    # that prevent the API from returning actual features.
+}
+
+# Adding a Referer header as some ArcGIS services might require it for origin checks
+headers = {
+    "Referer": "https://services.arcgis.com/"
+}
+
+print("Fetching data from NC DEQ servers...")
+response = requests.get(url, params=params, headers=headers)
+
+if response.status_code == 200:
+    data = response.json()
+    if "error" in data:
+        print(f"ArcGIS Service Error: {data['error']['message']}")
+        if 'details' in data['error'] and data['error']['details']:
+            for detail in data['error'] ['details']:
+                print(f"  Detail: {detail}")
+        else:
+            print("  No specific details provided by the server.")
+    else:
+        # The 'features' key will now be present and contain data if the API call was successful
+        features = data.get("features", [])
+
+        if features:
+            # Extract headers from the attributes of the first record
+            headers = list(features[0]["attributes"].keys())
+
+            # Write data to CSV with the requested filename
+            filename = "stormwater_permits.csv"
+            with open(filename, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=headers)
+                writer.writeheader()
+
+                for feature in features:
+                    writer.writerow(feature["attributes"])
+
+            print(f"Success! Saved as '{filename}'")
+        else:
+            print("No features found in the response for the specified counties. This might mean no data matches the filter or an issue with the API response structure.")
+else:
+    print(f"Failed to fetch data. Status code: {response.status_code}")
+
+# Load the CSV file into a pandas DataFrame
+# This will now successfully load the file if features were found and written.
+df = pd.read_csv('stormwater_permits.csv')
